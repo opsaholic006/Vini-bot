@@ -1,33 +1,67 @@
 import os
 import asyncio
+import json
+import logging
+import uuid
+import yt_dlp
+import edge_tts
+
 from telegram import (
     Update,
     InlineQueryResultArticle,
-    InputTextMessageContent,
+    InputTextMessageContent
 )
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    InlineQueryHandler,
     ContextTypes,
+    InlineQueryHandler,
+    ChosenInlineResultHandler
 )
-import yt_dlp
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# ================= CONFIG =================
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID", "7359097163"))
 
-MAX_DURATION = 600  # 10 minutes
+DATA_DIR = "/app/data"
+os.makedirs(DATA_DIR, exist_ok=True)
+USER_FILE = os.path.join(DATA_DIR, "users.json")
 
+logging.basicConfig(level=logging.WARNING)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot is running.")
+# ---------- FONT STYLER ----------
+def style_text(text):
+    normal = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    fancy  = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789"
+    return text.translate(str.maketrans(normal, fancy))
 
+# ---------- USERS ----------
+def load_users():
+    if not os.path.exists(USER_FILE):
+        return {}
+    try:
+        with open(USER_FILE) as f:
+            return json.load(f)
+    except:
+        return {}
 
-# ================= INLINE SEARCH (INSTANT, METADATA ONLY) =================
+def save_user(user):
+    if user.is_bot:
+        return
+    users = load_users()
+    users[str(user.id)] = user.first_name
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
+# ---------- INLINE SEARCH (FAST) ----------
 async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query.strip()
-    if not query:
-        await update.inline_query.answer([], cache_time=1)
+    q = update.inline_query.query.strip()
+    if not q:
+        await update.inline_query.answer(
+            [],
+            switch_pm_text="🎵 Type song name to search...",
+            switch_pm_parameter="start"
+        )
         return
 
     results = []
@@ -40,27 +74,27 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            data = await asyncio.to_thread(
+            info = await asyncio.to_thread(
                 ydl.extract_info,
-                f"ytsearch5:{query}",
-                download=False
+                f"ytsearch5:{q}",
+                False
             )
 
-        for entry in data.get("entries", []):
-            duration = entry.get("duration")
-            if not duration or duration > MAX_DURATION:
+        for e in info.get("entries", []):
+            if not e:
+                continue
+            if e.get("duration", 0) > 600:
                 continue
 
-            video_id = entry.get("id")
-            title = entry.get("title")
+            vid = e.get("id")
+            title = e.get("title")
 
             results.append(
                 InlineQueryResultArticle(
-                    id=video_id,
+                    id=vid,
                     title=title,
-                    input_message_content=InputTextMessageContent(
-                        f"/sing {video_id}"
-                    ),
+                    description="🎧 Tap to play (fast)",
+                    input_message_content=InputTextMessageContent("🎵 Fetching audio..."),
                 )
             )
 
@@ -69,63 +103,68 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.inline_query.answer([], cache_time=1)
 
+# ---------- INLINE CLICK HANDLER ----------
+async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vid = update.chosen_inline_result.result_id
+    chat_id = update.chosen_inline_result.from_user.id
 
-# ================= /SING COMMAND (FAST AUDIO ONLY) =================
-
-async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        return
-
-    query = context.args[0]
-    os.makedirs("downloads", exist_ok=True)
+    file = f"/tmp/{vid}.mp3"
 
     ydl_opts = {
-        "format": "bestaudio[abr<=64]/bestaudio",
-        "outtmpl": "downloads/%(id)s.%(ext)s",
-        "quiet": True,
+        "format": "bestaudio[abr<=48]/bestaudio",
+        "outtmpl": file,
         "noplaylist": True,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "64",
-            }
-        ],
+        "quiet": True,
+        "geo_bypass": True,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "48"
+        }],
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(
+            await asyncio.to_thread(
                 ydl.extract_info,
-                query,
-                download=True
+                f"https://www.youtube.com/watch?v={vid}",
+                True
             )
 
-        file_path = f"downloads/{info['id']}.mp3"
-        title = info.get("title", "Audio")
-
-        await update.message.reply_audio(
-            audio=open(file_path, "rb"),
-            title=title
+        await context.bot.send_audio(
+            chat_id=chat_id,
+            audio=open(file, "rb"),
+            title="🎵 Music"
         )
 
-        os.remove(file_path)
+    except Exception as e:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=style_text("❌ Failed to fetch audio.")
+        )
 
-    except:
-        pass
+    finally:
+        if os.path.exists(file):
+            os.remove(file)
 
+# ---------- COMMANDS ----------
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    save_user(update.effective_user)
+    await update.message.reply_text(
+        style_text("Hi! 🎧 Use inline mode to search music.")
+    )
 
-# ================= MAIN =================
-
+# ---------- MAIN ----------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("sing", sing_cmd))
+    app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(InlineQueryHandler(inline_sing))
+    app.add_handler(ChosenInlineResultHandler(chosen_inline))
 
-    app.run_polling()
-
+    print("🚀 Vini Turbo is running!")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
+
