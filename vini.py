@@ -17,11 +17,19 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
 USER_FILE = os.path.join(DATA_DIR, "users.json")
 
-settings = {"voice": "hi-IN-SwaraNeural", "rate": "+3%", "pitch": "+2Hz"}
+settings = {
+    "voice": "hi-IN-SwaraNeural",
+    "rate": "+3%",
+    "pitch": "+2Hz"
+}
+
 VOICE_LIST = {
-    "nezuko": "ja-JP-NanamiNeural", "aoi": "ja-JP-AoiNeural",
-    "ana": "en-US-AnaNeural", "aria": "en-US-AriaNeural",
-    "swara": "hi-IN-SwaraNeural", "lakshmi": "hi-IN-LakshmiNeural",
+    "nezuko": "ja-JP-NanamiNeural",
+    "aoi": "ja-JP-AoiNeural",
+    "ana": "en-US-AnaNeural",
+    "aria": "en-US-AriaNeural",
+    "swara": "hi-IN-SwaraNeural",
+    "lakshmi": "hi-IN-LakshmiNeural",
     "prabhat": "hi-IN-PrabhatNeural"
 }
 
@@ -29,9 +37,11 @@ logging.basicConfig(level=logging.WARNING)
 
 # ---------- FONT STYLER ----------
 def style_text(text):
+    """Converts standard text to a Small Caps style."""
     normal_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     fancy_chars  = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789"
-    return text.translate(str.maketrans(normal_chars, fancy_chars))
+    trans_table = str.maketrans(normal_chars, fancy_chars)
+    return text.translate(trans_table)
 
 # ---------- DATABASE ----------
 def load_users():
@@ -41,7 +51,7 @@ def load_users():
     except: return {}
 
 def save_user(user):
-    if user.is_bot: return # Safety for groups
+    if user.is_bot: return
     users = load_users()
     users[str(user.id)] = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
     with open(USER_FILE, "w") as f: json.dump(users, f)
@@ -50,10 +60,12 @@ def save_user(user):
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
-    await update.message.reply_text(style_text(f"ʜɪ {update.effective_user.first_name}! ɪ ᴀᴍ ʀᴇᴀᴅʏ ꜰᴏʀ ɢʀᴏᴜᴘs ᴛᴏᴏ."))
+    msg = f"Hi {update.effective_user.first_name}! Type /help for commands."
+    await update.message.reply_text(style_text(msg))
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(style_text("📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n🎵 /sɪɴɢ <sᴏɴɢ>\n👑 /ᴏᴡɴᴇʀ\n📜 /ʜᴇʟᴘ"))
+    text = "📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n🎵 /sɪɴɢ <sᴏɴɢ>\n👑 /ᴏᴡɴᴇʀ\n📜 /ʜᴇʟᴘ"
+    await update.message.reply_text(style_text(text))
 
 async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args: return
@@ -62,8 +74,8 @@ async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_name = f"tts_{task_id}.ogg"
     msg = await update.message.reply_text(style_text("🎤 ʀᴇᴄᴏʀᴅɪɴɢ..."))
     try:
-        comm = edge_tts.Communicate(text=text, voice=settings["voice"], rate=settings["rate"], pitch=settings["pitch"])
-        await comm.save(file_name)
+        communicate = edge_tts.Communicate(text=text, voice=settings["voice"], rate=settings["rate"], pitch=settings["pitch"])
+        await communicate.save(file_name)
         await update.message.reply_voice(voice=open(file_name, "rb"))
         await msg.delete()
     except: await msg.edit_text(style_text("❌ ᴛᴛs ᴇʀʀᴏʀ."))
@@ -83,14 +95,15 @@ async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'noplaylist': True,
         'quiet': True,
         'geo_bypass': True,
+        'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
         'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.to_thread(ydl.download, [f"ytsearch1:{query}"])
+            await asyncio.to_thread(ydl.extract_info, f"ytsearch1:{query}", download=True)
         
-        # Audio is sent as an Audio file (better for groups than Voice)
         await update.message.reply_audio(audio=open(file_path, 'rb'), title=query, performer="Vini Bot")
         await status_msg.delete()
     except:
@@ -99,46 +112,55 @@ async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if os.path.exists(file_path): os.remove(file_path)
 
 # --- OWNER COMMANDS ---
+
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text(style_text(f"👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n/ᴜsᴇʀs\n/ʙʀᴏᴀᴅᴄᴀsᴛ\n/sᴇᴛᴠᴏɪᴄᴇ\n/sᴇᴛʀᴀᴛᴇ\n/sᴇᴛᴘɪᴛᴄʜ"))
+    text = (
+        "👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n"
+        "📈 /ᴜsᴇʀs - ᴜsᴇʀ ʟɪsᴛ\n"
+        "📢 /ʙʀᴏᴀᴅᴄᴀsᴛ <ᴍsɢ> - ᴍᴇssᴀɢᴇ ᴀʟʟ\n"
+        "🎙 /sᴇᴛᴠᴏɪᴄᴇ <ɴᴀᴍᴇ> - ᴄʜᴀɴɢᴇ ᴠᴏɪᴄᴇ\n"
+        "⚡️ /sᴇᴛʀᴀᴛᴇ <%> - ᴇ.ɢ., +10%\n"
+        "🎼 /sᴇᴛᴘɪᴛᴄʜ <ʜᴢ> - ᴇ.ɢ., +5ʜᴢ\n\n"
+        f"ᴄᴜʀʀᴇɴᴛ: {settings['voice']} | {settings['rate']}"
+    )
+    await update.message.reply_text(style_text(text))
 
 async def set_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == OWNER_ID and context.args:
-        v = context.args[0].lower()
-        if v in VOICE_LIST:
-            settings["voice"] = VOICE_LIST[v]
-            await update.message.reply_text(style_text(f"✅ ᴠᴏɪᴄᴇ sᴇᴛ ᴛᴏ {v}"))
+    if update.effective_user.id != OWNER_ID or not context.args: return
+    v = context.args[0].lower()
+    if v in VOICE_LIST:
+        settings["voice"] = VOICE_LIST[v]
+        await update.message.reply_text(style_text(f"✅ ᴠᴏɪᴄᴇ sᴇᴛ ᴛᴏ {v}"))
 
 async def set_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == OWNER_ID and context.args:
-        settings["rate"] = context.args[0]
-        await update.message.reply_text(style_text(f"✅ sᴘᴇᴇᴅ sᴇᴛ ᴛᴏ {settings['rate']}"))
+    if update.effective_user.id != OWNER_ID or not context.args: return
+    settings["rate"] = context.args[0]
+    await update.message.reply_text(style_text(f"✅ sᴘᴇᴇᴅ sᴇᴛ ᴛᴏ {settings['rate']}"))
 
 async def set_pitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == OWNER_ID and context.args:
-        settings["pitch"] = context.args[0]
-        await update.message.reply_text(style_text(f"✅ ᴘɪᴛᴄʜ sᴇᴛ ᴛᴏ {settings['pitch']}"))
+    if update.effective_user.id != OWNER_ID or not context.args: return
+    settings["pitch"] = context.args[0]
+    await update.message.reply_text(style_text(f"✅ ᴘɪᴛᴄʜ sᴇᴛ ᴛᴏ {settings['pitch']}"))
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
     u = load_users()
-    await update.message.reply_text(style_text(f"📊 ᴜsᴇʀs: {len(u)}\n" + "\n".join([f"• {info}" for info in u.values()])))
+    user_list = "\n".join([f"• {info}" for info in u.values()])
+    await update.message.reply_text(style_text(f"📊 ᴜsᴇʀs: {len(u)}\n{user_list}"))
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID or not context.args: return
-    m = style_text(f"📢 ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ:\n\n{' '.join(context.args)}")
+    m = " ".join(context.args)
+    styled_m = style_text(f"📢 ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ:\n\n{m}")
     for uid in load_users().keys():
-        try: await context.bot.send_message(chat_id=int(uid), text=m)
+        try: await context.bot.send_message(chat_id=int(uid), text=styled_m)
         except: continue
     await update.message.reply_text(style_text("✅ sᴇɴᴛ."))
 
 # ---------- MAIN ----------
 def main():
-    # Build with stability timeouts
-    app = ApplicationBuilder().token(BOT_TOKEN).connect_timeout(30).read_timeout(30).build()
-    
-    # Handlers
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("vini", vini_cmd))
@@ -150,7 +172,7 @@ def main():
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
     
-    print("🚀 Vini Final is LIVE!")
+    print("🚀 Vini is running!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":

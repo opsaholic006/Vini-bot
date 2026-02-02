@@ -1,6 +1,13 @@
 #!/bin/bash
+
+# Clear any temporary audio files before pushing
+rm -f *.mp3 *.ogg
+
+# Standard git update sequence
 git add .
-read -p "What did you change? " msg
-git commit -m "$msg"
+git commit -m "Update Vini: Fixed Song Search and Group Logic"
 git push origin main
-echo "🚀 Code sent to GitHub! Railway is now updating Vini..."
+
+echo "✅ Vini update pushed successfully!"
+
+alias 'update vini'='./push.sh'
