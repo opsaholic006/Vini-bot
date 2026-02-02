@@ -17,6 +17,9 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
 USER_FILE = os.path.join(DATA_DIR, "users.json")
 
+# ✅ INLINE AUDIO CACHE (required)
+AUDIO_CACHE = {}
+
 settings = {"voice": "hi-IN-SwaraNeural", "rate": "+3%", "pitch": "+2Hz"}
 VOICE_LIST = {
     "nezuko": "ja-JP-NanamiNeural", "aoi": "ja-JP-AoiNeural",
@@ -35,150 +38,217 @@ def style_text(text):
 
 # ---------- DATABASE ----------
 def load_users():
-    if not os.path.exists(USER_FILE): return {}
+    if not os.path.exists(USER_FILE): 
+        return {}
     try:
-        with open(USER_FILE, "r") as f: return json.load(f)
-    except: return {}
+        with open(USER_FILE, "r") as f: 
+            return json.load(f)
+    except:
+        return {}
 
 def save_user(user):
-    if user.is_bot: return 
+    if user.is_bot: 
+        return
     users = load_users()
     users[str(user.id)] = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
-    with open(USER_FILE, "w") as f: json.dump(users, f)
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
-# ---------- INLINE SEARCH HANDLER ----------
-
+# ---------- INLINE SEARCH HANDLER (FIXED, FAST, NO ❗) ----------
 async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query
+    query = update.inline_query.query.strip()
     if not query:
         await update.inline_query.answer(
-            [], 
+            [],
             switch_pm_text="🎵 Type song name to search...",
             switch_pm_parameter="start"
         )
         return
-    
-    # STABLE OPTS: Optimized for famous audio and skipping video clutter
+
+    results = []
+
+    # FAST, LOW QUALITY SEARCH ONLY
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[abr<=64]/bestaudio',
         'quiet': True,
-        'no_warnings': True,
+        'noplaylist': True,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        # Browser-like headers to stop the red '!' mark
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'referer': 'https://www.youtube.com/',
     }
-    
-    results = []
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # ytsearch3: Gets only the top 3 most famous/viewed results
-            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch3:{query}", download=False)
-            if 'entries' in info:
-                for entry in info['entries']:
-                    if not entry.get('url'): continue
-                    results.append(
-                        InlineQueryResultAudio(
-                            id=entry['id'],
-                            audio_url=entry['url'], 
-                            title=entry['title'],
-                            performer=entry.get('uploader', "Vini Famous Audio")
-                        )
+            info = await asyncio.to_thread(
+                ydl.extract_info,
+                f"ytsearch3:{query}",
+                download=False
+            )
+
+        for entry in info.get("entries", []):
+            vid = entry.get("id")
+            title = entry.get("title")
+            if not vid or not title:
+                continue
+
+            # ✅ Only cached audio → instant play, no loading
+            if vid in AUDIO_CACHE:
+                results.append(
+                    InlineQueryResultAudio(
+                        id=vid,
+                        audio_file_id=AUDIO_CACHE[vid],
+                        title=title,
+                        performer=entry.get("uploader", "Vini Famous Audio")
                     )
-        
-        # cache_time=0 ensures fresh links so they don't expire/error
-        await update.inline_query.answer(results, cache_time=0)
-    except Exception:
-        # If search fails or times out, send empty to stop the 'loading'
-        await update.inline_query.answer([], cache_time=0)
+                )
+
+        await update.inline_query.answer(results, cache_time=1)
+
+    except:
+        await update.inline_query.answer([], cache_time=1)
 
 # ---------- COMMANDS ----------
-
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
-    await update.message.reply_text(style_text(f"Hi {update.effective_user.first_name}! Type /help for commands."))
+    await update.message.reply_text(
+        style_text(f"Hi {update.effective_user.first_name}! Type /help for commands.")
+    )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(style_text("📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n🎵 /sɪɴɢ <sᴏɴɢ>\n👑 /ᴏᴡɴᴇʀ\n📜 /ʜᴇʟᴘ"))
+    await update.message.reply_text(
+        style_text("📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n🎵 /sɪɴɢ <sᴏɴɢ>\n👑 /ᴏᴡɴᴇʀ\n📜 /ʜᴇʟᴘ")
+    )
 
 async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args: return
+    if not context.args:
+        return
     text = " ".join(context.args)
     file_name = f"tts_{uuid.uuid4().hex[:5]}.ogg"
     msg = await update.message.reply_text(style_text("🎤 ʀᴇᴄᴏʀᴅɪɴɢ..."))
     try:
-        comm = edge_tts.Communicate(text=text, voice=settings["voice"], rate=settings["rate"], pitch=settings["pitch"])
+        comm = edge_tts.Communicate(
+            text=text,
+            voice=settings["voice"],
+            rate=settings["rate"],
+            pitch=settings["pitch"]
+        )
         await comm.save(file_name)
         await update.message.reply_voice(voice=open(file_name, "rb"))
         await msg.delete()
-    except: await msg.edit_text(style_text("❌ ᴛᴛs ᴇʀʀᴏʀ."))
-    if os.path.exists(file_name): os.remove(file_name)
+    except:
+        await msg.edit_text(style_text("❌ ᴛᴛs ᴇʀʀᴏʀ."))
+    if os.path.exists(file_name):
+        os.remove(file_name)
 
 async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args: return
+    if not context.args:
+        return
+
     query = " ".join(context.args)
-    status_msg = await update.message.reply_text(style_text(f"🔍 sᴇᴀʀᴄʜɪɴɢ {query}..."))
+    status_msg = await update.message.reply_text(
+        style_text(f"🔍 sᴇᴀʀᴄʜɪɴɢ {query}...")
+    )
+
     file_path = f"song_{uuid.uuid4().hex[:5]}.mp3"
-    
+
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[abr<=64]/bestaudio',
         'outtmpl': file_path,
         'noplaylist': True,
         'quiet': True,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '64'
+        }],
     }
-    
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.to_thread(ydl.extract_info, f"ytsearch1:{query}", download=True)
-        await update.message.reply_audio(audio=open(file_path, 'rb'), title=query)
+            await asyncio.to_thread(
+                ydl.extract_info,
+                f"ytsearch1:{query}",
+                download=True
+            )
+
+        msg = await update.message.reply_audio(
+            audio=open(file_path, "rb"),
+            title=query
+        )
+
+        # ✅ CACHE FOR INLINE
+        if msg.audio:
+            AUDIO_CACHE[msg.audio.file_unique_id] = msg.audio.file_id
+
         await status_msg.delete()
-    except: await status_msg.edit_text(style_text("❌ ᴇʀʀᴏʀ: sᴏɴɢ ɴᴏᴛ ꜰᴏᴜɴᴅ."))
-    if os.path.exists(file_path): os.remove(file_path)
+
+    except:
+        await status_msg.edit_text(
+            style_text("❌ ᴇʀʀᴏʀ: sᴏɴɢ ɴᴏᴛ ꜰᴏᴜɴᴅ.")
+        )
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 # --- OWNER COMMANDS ---
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text(style_text(f"👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n/ᴜsᴇʀs\n/ʙʀᴏᴀᴅᴄᴀsᴛ\n/sᴇᴛᴠᴏɪᴄᴇ\n/sᴇᴛʀᴀᴛᴇ\n/sᴇᴛᴘɪᴛᴄʜ\n\nᴄᴜʀʀᴇɴᴛ: {settings['voice']}"))
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.message.reply_text(
+        style_text(
+            f"👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n/ᴜsᴇʀs\n/ʙʀᴏᴀᴅᴄᴀsᴛ\n"
+            f"/sᴇᴛᴠᴏɪᴄᴇ\n/sᴇᴛʀᴀᴛᴇ\n/sᴇᴛᴘɪᴛᴄʜ\n\n"
+            f"ᴄᴜʀʀᴇɴᴛ: {settings['voice']}"
+        )
+    )
 
 async def set_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == OWNER_ID and context.args:
         v = context.args[0].lower()
         if v in VOICE_LIST:
             settings["voice"] = VOICE_LIST[v]
-            await update.message.reply_text(style_text(f"✅ ᴠᴏɪᴄᴇ sᴇᴛ ᴛᴏ {v}"))
+            await update.message.reply_text(
+                style_text(f"✅ ᴠᴏɪᴄᴇ sᴇᴛ ᴛᴏ {v}")
+            )
 
 async def set_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == OWNER_ID and context.args:
         settings["rate"] = context.args[0]
-        await update.message.reply_text(style_text(f"✅ sᴘᴇᴇᴅ sᴇᴛ ᴛᴏ {settings['rate']}"))
+        await update.message.reply_text(
+            style_text(f"✅ sᴘᴇᴇᴅ sᴇᴛ ᴛᴏ {settings['rate']}")
+        )
 
 async def set_pitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == OWNER_ID and context.args:
         settings["pitch"] = context.args[0]
-        await update.message.reply_text(style_text(f"✅ ᴘɪᴛᴄʜ sᴇᴛ ᴛᴏ {settings['pitch']}"))
+        await update.message.reply_text(
+            style_text(f"✅ ᴘɪᴛᴄʜ sᴇᴛ ᴛᴏ {settings['pitch']}")
+        )
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if update.effective_user.id != OWNER_ID:
+        return
     u = load_users()
-    await update.message.reply_text(style_text(f"📊 ᴜsᴇʀs: {len(u)}\n" + "\n".join([f"• {info}" for info in u.values()])))
+    await update.message.reply_text(
+        style_text(f"📊 ᴜsᴇʀs: {len(u)}\n" + "\n".join([f"• {info}" for info in u.values()]))
+    )
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID or not context.args: return
+    if update.effective_user.id != OWNER_ID or not context.args:
+        return
     m = style_text(f"📢 ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ:\n\n{' '.join(context.args)}")
     for uid in load_users().keys():
-        try: await context.bot.send_message(chat_id=int(uid), text=m)
-        except: continue
+        try:
+            await context.bot.send_message(chat_id=int(uid), text=m)
+        except:
+            continue
     await update.message.reply_text(style_text("✅ sᴇɴᴛ."))
 
 # ---------- MAIN ----------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
+
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("vini", vini_cmd))
@@ -189,8 +259,8 @@ def main():
     app.add_handler(CommandHandler("setpitch", set_pitch))
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app.add_handler(InlineQueryHandler(inline_sing)) 
-    
+    app.add_handler(InlineQueryHandler(inline_sing))
+
     print("🚀 Vini Turbo is running!")
     app.run_polling(drop_pending_updates=True)
 
