@@ -4,6 +4,7 @@ import edge_tts
 import json
 import logging
 import yt_dlp
+import uuid
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -16,11 +17,21 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
 USER_FILE = os.path.join(DATA_DIR, "users.json")
 
-CURRENT_PITCH = "+2Hz"
-VOICE_RATE = "+3%"
-CURRENT_VOICE = "hi-IN-SwaraNeural"
+settings = {"voice": "hi-IN-SwaraNeural", "rate": "+3%", "pitch": "+2Hz"}
+VOICE_LIST = {
+    "nezuko": "ja-JP-NanamiNeural", "aoi": "ja-JP-AoiNeural",
+    "ana": "en-US-AnaNeural", "aria": "en-US-AriaNeural",
+    "swara": "hi-IN-SwaraNeural", "lakshmi": "hi-IN-LakshmiNeural",
+    "prabhat": "hi-IN-PrabhatNeural"
+}
 
 logging.basicConfig(level=logging.WARNING)
+
+# ---------- FONT STYLER ----------
+def style_text(text):
+    normal_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    fancy_chars  = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789"
+    return text.translate(str.maketrans(normal_chars, fancy_chars))
 
 # ---------- DATABASE ----------
 def load_users():
@@ -30,6 +41,7 @@ def load_users():
     except: return {}
 
 def save_user(user):
+    if user.is_bot: return # Safety for groups
     users = load_users()
     users[str(user.id)] = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
     with open(USER_FILE, "w") as f: json.dump(users, f)
@@ -38,85 +50,107 @@ def save_user(user):
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
-    await update.message.reply_text(f"Hi {update.effective_user.first_name}! I'm Vini. Type /help to see my commands.")
+    await update.message.reply_text(style_text(f"ʜɪ {update.effective_user.first_name}! ɪ ᴀᴍ ʀᴇᴀᴅʏ ꜰᴏʀ ɢʀᴏᴜᴘs ᴛᴏᴏ."))
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📖 *Vini Help Menu*\n\n"
-        "🎤 `/vini <text>` - Text to Voice\n"
-        "🎵 `/sing <song>` - Get music\n"
-        "👑 `/owner` - Owner settings\n"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(style_text("📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n🎵 /sɪɴɢ <sᴏɴɢ>\n👑 /ᴏᴡɴᴇʀ\n📜 /ʜᴇʟᴘ"))
 
 async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    save_user(update.effective_user)
-    if not context.args:
-        await update.message.reply_text("Usage: `/vini hello`", parse_mode="Markdown")
-        return
+    if not context.args: return
     text = " ".join(context.args)
-    file_name = f"tts_{update.effective_user.id}.ogg"
-    msg = await update.message.reply_text("🎤 Recording...")
-    communicate = edge_tts.Communicate(text=text, voice=CURRENT_VOICE, rate=VOICE_RATE, pitch=CURRENT_PITCH)
-    await communicate.save(file_name)
-    await update.message.reply_voice(voice=open(file_name, "rb"))
-    await msg.delete()
+    task_id = uuid.uuid4().hex[:8]
+    file_name = f"tts_{task_id}.ogg"
+    msg = await update.message.reply_text(style_text("🎤 ʀᴇᴄᴏʀᴅɪɴɢ..."))
+    try:
+        comm = edge_tts.Communicate(text=text, voice=settings["voice"], rate=settings["rate"], pitch=settings["pitch"])
+        await comm.save(file_name)
+        await update.message.reply_voice(voice=open(file_name, "rb"))
+        await msg.delete()
+    except: await msg.edit_text(style_text("❌ ᴛᴛs ᴇʀʀᴏʀ."))
     if os.path.exists(file_name): os.remove(file_name)
 
 async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: `/sing song name`")
-        return
+    if not context.args: return
     query = " ".join(context.args)
-    status_msg = await update.message.reply_text(f"🔍 Searching for `{query}`...", parse_mode="Markdown")
-    file_path = f"song_{update.effective_user.id}.mp3"
+    status_msg = await update.message.reply_text(style_text(f"🔍 sᴇᴀʀᴄʜɪɴɢ {query}..."))
+    
+    task_id = uuid.uuid4().hex[:8]
+    file_path = f"song_{task_id}.mp3"
+    
     ydl_opts = {
         'format': 'bestaudio/best',
-        'default_search': 'ytsearch1',
         'outtmpl': file_path,
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+        'noplaylist': True,
+        'quiet': True,
+        'geo_bypass': True,
+        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
     }
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([query])
-        await update.message.reply_voice(voice=open(file_path, 'rb'))
+            await asyncio.to_thread(ydl.download, [f"ytsearch1:{query}"])
+        
+        # Audio is sent as an Audio file (better for groups than Voice)
+        await update.message.reply_audio(audio=open(file_path, 'rb'), title=query, performer="Vini Bot")
         await status_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text("❌ Error downloading song.")
+    except:
+        await status_msg.edit_text(style_text("❌ ᴇʀʀᴏʀ: sᴏɴɢ ɴᴏᴛ ꜰᴏᴜɴᴅ."))
+    
     if os.path.exists(file_path): os.remove(file_path)
 
+# --- OWNER COMMANDS ---
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text("👑 *Owner Menu*\n/users - List users\n/broadcast - Message all", parse_mode="Markdown")
+    await update.message.reply_text(style_text(f"👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n/ᴜsᴇʀs\n/ʙʀᴏᴀᴅᴄᴀsᴛ\n/sᴇᴛᴠᴏɪᴄᴇ\n/sᴇᴛʀᴀᴛᴇ\n/sᴇᴛᴘɪᴛᴄʜ"))
+
+async def set_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == OWNER_ID and context.args:
+        v = context.args[0].lower()
+        if v in VOICE_LIST:
+            settings["voice"] = VOICE_LIST[v]
+            await update.message.reply_text(style_text(f"✅ ᴠᴏɪᴄᴇ sᴇᴛ ᴛᴏ {v}"))
+
+async def set_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == OWNER_ID and context.args:
+        settings["rate"] = context.args[0]
+        await update.message.reply_text(style_text(f"✅ sᴘᴇᴇᴅ sᴇᴛ ᴛᴏ {settings['rate']}"))
+
+async def set_pitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == OWNER_ID and context.args:
+        settings["pitch"] = context.args[0]
+        await update.message.reply_text(style_text(f"✅ ᴘɪᴛᴄʜ sᴇᴛ ᴛᴏ {settings['pitch']}"))
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    users = load_users()
-    list_txt = "\n".join([f"• {info}" for uid, info in users.items()])
-    await update.message.reply_text(f"📊 *Users:* {len(users)}\n{list_txt}", parse_mode="Markdown")
+    u = load_users()
+    await update.message.reply_text(style_text(f"📊 ᴜsᴇʀs: {len(u)}\n" + "\n".join([f"• {info}" for info in u.values()])))
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID or not context.args: return
-    msg = " ".join(context.args)
-    users = load_users()
-    for uid in users.keys():
-        try: await context.bot.send_message(chat_id=uid, text=msg)
+    m = style_text(f"📢 ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ:\n\n{' '.join(context.args)}")
+    for uid in load_users().keys():
+        try: await context.bot.send_message(chat_id=int(uid), text=m)
         except: continue
-    await update.message.reply_text("✅ Sent.")
+    await update.message.reply_text(style_text("✅ sᴇɴᴛ."))
 
 # ---------- MAIN ----------
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+    # Build with stability timeouts
+    app = ApplicationBuilder().token(BOT_TOKEN).connect_timeout(30).read_timeout(30).build()
+    
+    # Handlers
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("vini", vini_cmd))
     app.add_handler(CommandHandler("sing", sing_cmd))
     app.add_handler(CommandHandler("owner", owner_cmd))
+    app.add_handler(CommandHandler("setvoice", set_voice))
+    app.add_handler(CommandHandler("setrate", set_rate))
+    app.add_handler(CommandHandler("setpitch", set_pitch))
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-
-    print("⚡ Vini Cloud is Live!")
+    
+    print("🚀 Vini Final is LIVE!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
