@@ -58,24 +58,26 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # NEW: Optimized to find famous audio files quickly
+    # STABLE OPTS: Optimized for famous audio and skipping video clutter
     ydl_opts = {
-        'format': 'bestaudio/best', # Only check for audio files
-        'extract_flat': False,      # Need False to get the direct famous stream URL
+        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
         'nocheckcertificate': True,
+        # Browser-like headers to stop the red '!' mark
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
     }
     
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # We use 'ytsearch3' to keep it fast and only show the TOP 3 most famous results
+            # ytsearch3: Gets only the top 3 most famous/viewed results
             info = await asyncio.to_thread(ydl.extract_info, f"ytsearch3:{query}", download=False)
             if 'entries' in info:
                 for entry in info['entries']:
+                    if not entry.get('url'): continue
                     results.append(
                         InlineQueryResultAudio(
                             id=entry['id'],
@@ -85,8 +87,10 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
                     )
         
+        # cache_time=0 ensures fresh links so they don't expire/error
         await update.inline_query.answer(results, cache_time=0)
-    except:
+    except Exception:
+        # If search fails or times out, send empty to stop the 'loading'
         await update.inline_query.answer([], cache_time=0)
 
 # ---------- COMMANDS ----------
