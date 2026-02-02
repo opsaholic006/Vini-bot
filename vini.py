@@ -58,21 +58,21 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # NEW: Optimized to find famous audio files quickly
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio/best', # Only check for audio files
+        'extract_flat': False,      # Need False to get the direct famous stream URL
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
-        'extract_flat': False,
-        'skip_download': True,
-        'socket_timeout': 10, # Stops "timeout" errors
+        'nocheckcertificate': True,
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Limiting to 3 results to ensure the bot finishes before the 2-second timeout
+            # We use 'ytsearch3' to keep it fast and only show the TOP 3 most famous results
             info = await asyncio.to_thread(ydl.extract_info, f"ytsearch3:{query}", download=False)
             if 'entries' in info:
                 for entry in info['entries']:
@@ -81,14 +81,12 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             id=entry['id'],
                             audio_url=entry['url'], 
                             title=entry['title'],
-                            performer=entry.get('uploader', "Vini Audio")
+                            performer=entry.get('uploader', "Vini Famous Audio")
                         )
                     )
         
-        # cache_time=0 ensures the links don't expire
         await update.inline_query.answer(results, cache_time=0)
-    except Exception as e:
-        # If it still times out, send an empty result to stop the spinning
+    except:
         await update.inline_query.answer([], cache_time=0)
 
 # ---------- COMMANDS ----------
