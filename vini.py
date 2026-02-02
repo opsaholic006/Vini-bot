@@ -51,7 +51,6 @@ def save_user(user):
 async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
     if not query:
-        # This stops the infinite loading when the search is empty
         await update.inline_query.answer(
             [], 
             switch_pm_text="🎵 Type song name to search...",
@@ -64,27 +63,26 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
-        'extract_flat': True, # This makes it INSTANT by not downloading data yet
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'extract_flat': False, 
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Search for 10 songs flat (no download) for speed
-            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch10:{query}", download=False)
+            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch5:{query}", download=False)
             if 'entries' in info:
                 for entry in info['entries']:
                     results.append(
                         InlineQueryResultAudio(
                             id=entry['id'],
-                            audio_url=f"https://www.youtube.com/watch?v={entry['id']}", 
+                            audio_url=entry['url'], 
                             title=entry['title'],
                             performer=entry.get('uploader', "Vini Audio")
                         )
                     )
         
-        await update.inline_query.answer(results, cache_time=300)
+        await update.inline_query.answer(results, cache_time=0)
     except Exception as e:
         print(f"Inline Error: {e}")
 
@@ -123,7 +121,7 @@ async def sing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'quiet': True,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
     }
     
@@ -174,7 +172,6 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # Registering all handlers
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("vini", vini_cmd))
