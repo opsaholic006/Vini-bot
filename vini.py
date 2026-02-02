@@ -1,22 +1,20 @@
 import os
 import asyncio
+import edge_tts
 import json
 import logging
-import uuid
 import yt_dlp
-import edge_tts
+import uuid
 
 from telegram import (
     Update,
-    InlineQueryResultArticle,
-    InputTextMessageContent
+    InlineQueryResultAudio
 )
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
-    InlineQueryHandler,
-    ChosenInlineResultHandler
+    InlineQueryHandler
 )
 
 # ================= CONFIG =================
@@ -27,6 +25,18 @@ DATA_DIR = "/app/data"
 os.makedirs(DATA_DIR, exist_ok=True)
 USER_FILE = os.path.join(DATA_DIR, "users.json")
 
+settings = {"voice": "hi-IN-SwaraNeural", "rate": "+3%", "pitch": "+2Hz"}
+
+VOICE_LIST = {
+    "nezuko": "ja-JP-NanamiNeural",
+    "aoi": "ja-JP-AoiNeural",
+    "ana": "en-US-AnaNeural",
+    "aria": "en-US-AriaNeural",
+    "swara": "hi-IN-SwaraNeural",
+    "lakshmi": "hi-IN-LakshmiNeural",
+    "prabhat": "hi-IN-PrabhatNeural"
+}
+
 logging.basicConfig(level=logging.WARNING)
 
 # ---------- FONT STYLER ----------
@@ -35,7 +45,7 @@ def style_text(text):
     fancy  = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789"
     return text.translate(str.maketrans(normal, fancy))
 
-# ---------- USERS ----------
+# ---------- DATABASE ----------
 def load_users():
     if not os.path.exists(USER_FILE):
         return {}
@@ -49,11 +59,11 @@ def save_user(user):
     if user.is_bot:
         return
     users = load_users()
-    users[str(user.id)] = user.first_name
+    users[str(user.id)] = f"{user.first_name} (@{user.username or 'N/A'})"
     with open(USER_FILE, "w") as f:
         json.dump(users, f)
 
-# ---------- INLINE SEARCH (FAST) ----------
+# ---------- INLINE SEARCH (FAST, AUDIO ONLY) ----------
 async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.inline_query.query.strip()
     if not q:
@@ -68,8 +78,9 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ydl_opts = {
         "quiet": True,
-        "skip_download": True,
         "extract_flat": True,
+        "skip_download": True,
+        "geo_bypass": True
     }
 
     try:
@@ -86,15 +97,17 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if e.get("duration", 0) > 600:
                 continue
 
-            vid = e.get("id")
-            title = e.get("title")
+            vid = e["id"]
+            title = e["title"]
+
+            audio_url = f"https://www.youtube.com/watch?v={vid}"
 
             results.append(
-                InlineQueryResultArticle(
+                InlineQueryResultAudio(
                     id=vid,
+                    audio_url=audio_url,
                     title=title,
-                    description="🎧 Tap to play (fast)",
-                    input_message_content=InputTextMessageContent("🎵 Fetching audio..."),
+                    performer=e.get("uploader", "Vini Famous Audio")
                 )
             )
 
@@ -103,55 +116,60 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.inline_query.answer([], cache_time=1)
 
-# ---------- INLINE CLICK HANDLER ----------
-async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    vid = update.chosen_inline_result.result_id
-    chat_id = update.chosen_inline_result.from_user.id
-
-    file = f"/tmp/{vid}.mp3"
-
-    ydl_opts = {
-        "format": "bestaudio[abr<=48]/bestaudio",
-        "outtmpl": file,
-        "noplaylist": True,
-        "quiet": True,
-        "geo_bypass": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "48"
-        }],
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.to_thread(
-                ydl.extract_info,
-                f"https://www.youtube.com/watch?v={vid}",
-                True
-            )
-
-        await context.bot.send_audio(
-            chat_id=chat_id,
-            audio=open(file, "rb"),
-            title="🎵 Music"
-        )
-
-    except Exception as e:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=style_text("❌ Failed to fetch audio.")
-        )
-
-    finally:
-        if os.path.exists(file):
-            os.remove(file)
-
 # ---------- COMMANDS ----------
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
     await update.message.reply_text(
-        style_text("Hi! 🎧 Use inline mode to search music.")
+        style_text(f"Hi {update.effective_user.first_name}! Type /help for commands.")
+    )
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        style_text(
+            "📖 ᴠɪɴɪ ʜᴇʟᴘ\n\n"
+            "🎤 /ᴠɪɴɪ <ᴛᴇxᴛ>\n"
+            "🎵 /sɪɴɢ <sᴏɴɢ>\n"
+            "👑 /ᴏᴡɴᴇʀ\n"
+            "📜 /ʜᴇʟᴘ"
+        )
+    )
+
+async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        return
+    text = " ".join(context.args)
+    file = f"tts_{uuid.uuid4().hex}.ogg"
+    msg = await update.message.reply_text(style_text("🎤 ʀᴇᴄᴏʀᴅɪɴɢ..."))
+    try:
+        tts = edge_tts.Communicate(
+            text=text,
+            voice=settings["voice"],
+            rate=settings["rate"],
+            pitch=settings["pitch"]
+        )
+        await tts.save(file)
+        await update.message.reply_voice(open(file, "rb"))
+        await msg.delete()
+    except:
+        await msg.edit_text(style_text("❌ ᴛᴛs ᴇʀʀᴏʀ."))
+    finally:
+        if os.path.exists(file):
+            os.remove(file)
+
+# ---------- OWNER ----------
+async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.message.reply_text(
+        style_text(
+            f"👑 ᴏᴡɴᴇʀ ᴍᴇɴᴜ\n\n"
+            f"/ᴜsᴇʀs\n"
+            f"/ʙʀᴏᴀᴅᴄᴀsᴛ\n"
+            f"/sᴇᴛᴠᴏɪᴄᴇ\n"
+            f"/sᴇᴛʀᴀᴛᴇ\n"
+            f"/sᴇᴛᴘɪᴛᴄʜ\n\n"
+            f"ᴄᴜʀʀᴇɴᴛ: {settings['voice']}"
+        )
     )
 
 # ---------- MAIN ----------
@@ -159,12 +177,13 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("vini", vini_cmd))
+    app.add_handler(CommandHandler("owner", owner_cmd))
     app.add_handler(InlineQueryHandler(inline_sing))
-    app.add_handler(ChosenInlineResultHandler(chosen_inline))
 
     print("🚀 Vini Turbo is running!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
-
