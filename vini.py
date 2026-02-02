@@ -63,14 +63,17 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
-        'extract_flat': False, 
+        'extract_flat': False,
+        'skip_download': True,
+        'socket_timeout': 10, # Stops "timeout" errors
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch5:{query}", download=False)
+            # Limiting to 3 results to ensure the bot finishes before the 2-second timeout
+            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch3:{query}", download=False)
             if 'entries' in info:
                 for entry in info['entries']:
                     results.append(
@@ -82,9 +85,11 @@ async def inline_sing(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
                     )
         
+        # cache_time=0 ensures the links don't expire
         await update.inline_query.answer(results, cache_time=0)
     except Exception as e:
-        print(f"Inline Error: {e}")
+        # If it still times out, send an empty result to stop the spinning
+        await update.inline_query.answer([], cache_time=0)
 
 # ---------- COMMANDS ----------
 
