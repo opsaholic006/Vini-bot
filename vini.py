@@ -8,11 +8,17 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ================= CONFIG =================
-BOT_TOKEN = "8544824856:AAF2GxVnKafvoIUBVX7MAmH_gSctr5TcEfk"
-OWNER_ID = 7359097163
-USER_FILE = "users.json"
+# We use Environment Variables for Railway security
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8544824856:AAF2GxVnKafvoIUBVX7MAmH_gSctr5TcEfk")
+OWNER_ID = int(os.getenv("OWNER_ID", "7359097163"))
 
-# Settings
+# Path for Railway Persistent Volume
+DATA_DIR = "/app/data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
+USER_FILE = os.path.join(DATA_DIR, "users.json")
+
+# Default Settings
 CURRENT_PITCH = "+2Hz"
 VOICE_RATE = "+3%"
 CURRENT_VOICE = "hi-IN-SwaraNeural"
@@ -27,9 +33,7 @@ VOICE_LIST = {
     "prabhat": "hi-IN-PrabhatNeural"
 }
 
-# SILENT LOGGING: Only shows errors, not every request
 logging.basicConfig(level=logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ---------- DATABASE ----------
 def load_users():
@@ -54,10 +58,7 @@ async def generate_tts(text: str, voice: str, rate: str, pitch: str, file_name: 
 # ---------- COMMANDS ----------
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
-    await update.message.reply_text(f"Hello {update.effective_user.first_name}! I'm Vini. Use /vini <text> to make me speak.")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📖 **Vini Help**\n\n/vini <text> - Convert text to voice\n/start - Restart bot", parse_mode="Markdown")
+    await update.message.reply_text(f"Hello {update.effective_user.first_name}! Vini is now running on Railway Cloud ☁️.")
 
 async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user)
@@ -74,66 +75,35 @@ async def vini_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("❌ Error generating voice.")
     if os.path.exists(file_name): os.remove(file_name)
 
-# --- OWNER ONLY ---
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    dashboard = (
-        "👑 **OWNER DASHBOARD**\n\n"
-        "📊 `/users` - User List\n"
-        "📢 `/broadcast <msg>` - Broadcast\n"
-        "⚙️ `/voice <name>` - Set Voice\n"
-        "⚙️ `/speed <%>` - Set Speed\n"
-        "⚙️ `/pitch <Hz>` - Set Pitch\n\n"
-        "Current Voice: `{}`".format(CURRENT_VOICE)
-    )
-    await update.message.reply_text(dashboard, parse_mode="Markdown")
+    await update.message.reply_text("👑 **Owner Dashboard Active**\n/users | /broadcast | /voice", parse_mode="Markdown")
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
     users = load_users()
     list_txt = "\n".join([f"ID: `{uid}` | Name: {info}" for uid, info in users.items()])
-    await update.message.reply_text(f"📊 **Total Users:** {len(users)}\n\n{list_txt}", parse_mode="Markdown")
+    await update.message.reply_text(f"📊 **Users:** {len(users)}\n\n{list_txt}", parse_mode="Markdown")
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID or not context.args: return
     msg = " ".join(context.args)
     users = load_users()
-    count = 0
     for uid in users.keys():
-        try:
-            await context.bot.send_message(chat_id=uid, text=f"📢 **Admin Message:**\n\n{msg}")
-            count += 1
+        try: await context.bot.send_message(chat_id=uid, text=f"📢 **Admin Message:**\n\n{msg}")
         except: continue
-    await update.message.reply_text(f"✅ Broadcast sent to {count} users.")
-
-async def voice_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CURRENT_VOICE
-    if update.effective_user.id != OWNER_ID or not context.args: return
-    choice = context.args[0].lower()
-    if choice in VOICE_LIST:
-        CURRENT_VOICE = VOICE_LIST[choice]
-        await update.message.reply_text(f"Voice changed to {choice}")
-
-# ---------- ERROR HANDLER ----------
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    # Quietly log network errors without crashing or spamming terminal
-    pass
+    await update.message.reply_text("✅ Sent.")
 
 # ---------- MAIN ----------
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).connect_timeout(30).read_timeout(30).build()
-
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("vini", vini_cmd))
     app.add_handler(CommandHandler("owner", owner_cmd))
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app.add_handler(CommandHandler("voice", voice_cmd))
     
-    app.add_error_handler(error_handler)
-
-    print("⚡ Vini is Online. Terminal is clean and silent.")
+    print("⚡ Vini Cloud is starting...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
