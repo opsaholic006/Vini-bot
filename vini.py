@@ -1,3 +1,12 @@
+import sys
+import traceback
+
+def excepthook(exc_type, exc, tb):
+    print("UNCAUGHT EXCEPTION:", file=sys.stderr)
+    traceback.print_exception(exc_type, exc, tb)
+
+sys.excepthook = excepthook
+
 import os
 import json
 import asyncio
