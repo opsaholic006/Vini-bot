@@ -1,5 +1,3 @@
 python-telegram-bot
 edge-tts
-yt-dlp
 redis
-ffmpeg-python
