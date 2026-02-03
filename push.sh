@@ -10,4 +10,5 @@ git push origin main
 
 echo "✅ Vini update pushed successfully!"
 
-alias 'update vini'='./push.sh'
+# Correct alias (no spaces)
+alias update_vini='./push.sh'
